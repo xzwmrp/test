@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<meta http-equiv="X-UA-Compatible" content="ie=edge" />
+		<title>轨迹回放动画</title>
+	</head>
+	<script charset="utf-8"
+		src="https://map.qq.com/api/gljs?v=1.exp&key=OB4BZ-D4W3U-B7VVO-4PJWW-6TKDJ-WPB77&libraries=geometry,visualization">
+	</script>
+
+	<script charset="utf-8" src="https://www.krpanowx.com/loveRunPc/js/douglas-peucker.js"></script>
+	<script src="https://www.krpanowx.com/loveRunPc/js/jquery-1.12.4.min.js"></script>
+	<script src="https://www.krpanowx.com/loveRunPc/js/jquery.form.js"></script>
+	<script src="https://www.krpanowx.com/loveRunPc/layui-v2.7.6/layui/layui.js"></script>
+	<style type="text/css">
+		html,
+		body {
+			height: 100%;
+			margin: 0px;
+			padding: 0px;
+		}
+
+		#container {
+			width: 100%;
+			height: 100%;
+		}
+
+		.btnContainer {
+			position: absolute;
+			left: 30px;
+			top: 20px;
+			z-index: 10000;
+		}
+
+		.btnContainer button {
+			padding: 10px 14px;
+			box-sizing: border-box;
+			border: none;
+			background-color: #919aac;
+			border-radius: 2px;
+			color: #fff;
+			font-size: 14px;
+			line-height: 14px;
+		}
+
+		.btnContainer button:focus {
+			outline: none;
+		}
+
+		.btnContainer .btn {
+			padding: 10px 14px;
+			background: #3876ff;
+			border-radius: 2px;
+			border: none;
+			box-sizing: border-box;
+			font-size: 14px;
+			color: #fff;
+			line-height: 14px;
+			font-family: PingFangSC-Regular;
+		}
+
+		input {
+			height: 25px;
+		}
+
+		.info {
+			background-color: white;
+			padding: 10px;
+			font-size: 14px;
+		}
+	</style>
+
+	<body>
+		<!-- <div class="btnContainer">
+			<button class="btn" onclick="loadGPS()">加载数据</button>
+			<button class="btn" onclick="btn()">点击开始移动</button>
+		</div> -->
+		<div id="container">
+			<div
+				style="position:absolute;background-color: rgba(0, 0, 0, 0.6);box-shadow: 2px 2px 4px 0px rgba(0, 0, 0, 0.5);width:80%;margin-left:10%;border-radius:10px;top:40px">
+				<div>
+					<div style="color: white;font-size:20px;letter-spacing:1px;margin:5px 0 5px 10px" id="ps">配速：18′40″
+					</div>
+				</div>
+				<div>
+					<div style="color: white;font-size:20px;letter-spacing:1px;margin:5px 0 5px 10px" id="lc">里程：5.67 km
+					</div>
+				</div>
+				<div>
+					<div style="color: white;font-size:20px;letter-spacing:1px;margin:5px 0 5px 10px" id="sj">
+						时间：34:45:89</div>
+				</div>
+
+			</div>
+			<div class="ewm">
+				<div class="ewmText">
+					<div style="margin: 2px;">
+						生命不息，运动不止
+					</div>
+					<div style="margin: 2px;">
+						跑跑步-微信小程序
+					</div>
+					<div style="margin: 2px;">
+					  【长按识别二维码】
+					</div>
+				</div>
+				<image class="ewmImg" src="./img/ewm.png"></image>
+			</div>
+		</div>
+		<script type="text/javascript">
+			var paths = []
+			var isMoving = false;
+			var roation;
+			var position;
+			var markerData = []; //marker数据
+			var marker = "";
+			var trailData = [] // trail数据
+			var trail = "";
+			var path = []
+			var colorOffset = []
+
+			window.onload = function() {
+				var param = getQueryParam("id");
+				if (param == "" || param == null) {
+					console.log("参数为空")
+					param = 2211;
+				}
+				this.loadGPS(param);
+				setTimeout(() => {
+					btn()
+				}, 1500)
+			};
+
+			function getQueryParam(param) {
+				const urlParams = new URLSearchParams(window.location.search);
+				return urlParams.get(param);
+			}
+			// 速度转换 m/s -> km/h
+			function covertSpeed(ms) {
+				if (ms <= 0) {
+					return 0.00
+				}
+				const kmh = ms * (60 * 60)
+				return parseFloat(String(kmh / 1000)).toFixed(2)
+			}
+			
+			function TimeTotimestamp(time) {
+				var parts = time.split(":");
+				var hours = parseInt(parts[0]);
+				var minutes = parseInt(parts[1]);
+				var seconds = parseInt(parts[2]);
+				var totalSeconds = (hours * 60 * 60) + (minutes * 60) + seconds;
+				return totalSeconds/60;
+			}
+			
+			function TimeToHFS(timestamp) {
+				var time = Math.round(timestamp);
+				let hour = Math.floor(time / 3600);
+				let min = Math.floor((time % 3600) / 60);
+				let sec = Math.floor(time % 60);
+				return `${hour.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}:${sec.toString().padStart(2, '0')}`;
+			}
+			function toPsNum(v) {
+				var decimal = (60 / parseFloat(v)).toFixed(2)
+				return decimal
+			}
+			function toPs(v) {
+				function padWithZeros(number, length) {
+					return String(number).padStart(length, '0');
+				}
+				var decimal = (60 / parseFloat(v)).toFixed(2)
+				// 获取秒数（十进制数的小数部分乘以60，然后向下取整）
+				var seconds = Math.floor(decimal % 1 * 60);
+				// 获取分钟数（十进制数整数部分乘以60）
+				var minutes = Math.floor(decimal);
+				return padWithZeros(minutes,2) + "′" + padWithZeros(seconds,2) + "″"
+			}
+
+			function carMove() {
+				marker.moveAlong({
+					whiteDot: {
+						path: markerData,
+						speed: 324, // 速度 单位：千米/小时
+					},
+				}, {
+					autoRotation: true,
+				});
+				trail.setData(trailData); //设置数据
+				console.log(markerData)
+				console.log(trailData)
+
+				isMoving = true;
+			}
+
+			function btn() {
+				if (isMoving) return;
+				carMove()
+			}
+            
+            /**
+            * 跑步轨迹拐角平滑处理（保留关键转折点）
+            * @param {Array} points 已过滤的GPS点数组
+            * @param {number} windowSize 滑动窗口大小（建议奇数）
+            */
+            function smoothCorners(points, windowSize = 5) {
+              if (points.length < windowSize) return points;
+              
+              const half = Math.floor(windowSize / 2);
+              const smoothed = [];
+              
+              // 辅助函数：计算三点间转向角度
+              const calculateAngle = (p1, p2, p3) => {
+                const v1 = { x: p2.longitude - p1.longitude, y: p2.latitude - p1.latitude };
+                const v2 = { x: p3.longitude - p2.longitude, y: p3.latitude - p2.latitude };
+                const dot = v1.x * v2.x + v1.y * v2.y;
+                const det = v1.x * v2.y - v1.y * v2.x;
+                return Math.atan2(det, dot) * 180 / Math.PI; // [-180, 180]
+              };
+            
+              for (let i = 0; i < points.length; i++) {
+                // 关键点检测（角度变化>30度则保留原始点）
+                if (i > 0 && i < points.length - 1) {
+                  const angle = Math.abs(calculateAngle(
+                    points[i - 1], points[i], points[i + 1]
+                  ));
+                  if (angle > 30) { // 检测到明显拐角
+                    smoothed.push(points[i]);
+                    continue;
+                  }
+                }
+            
+                // 滑动平均处理
+                let sumLon = 0, sumLat = 0, count = 0;
+                for (let j = i - half; j <= i + half; j++) {
+                  if (j >= 0 && j < points.length) {
+                    sumLon += points[j].longitude;
+                    sumLat += points[j].latitude;
+                    count++;
+                  }
+                }
+                smoothed.push({
+                  ...points[i],
+                  longitude: sumLon / count,
+                  latitude: sumLat / count
+                });
+              }
+              
+              return smoothed;
+            }
+            
+            // 更新后的过滤函数 -------------------------------------------------
+            function filterGPS(points) {
+              if (points.length <= 1) return points;
+            
+              // ...保持原有步骤1-4的过滤逻辑...
+            
+              // 步骤4：生成过滤后的点数组
+              const filteredPoints = points.filter((_, i) => keep[i]);
+            
+              // 新增步骤5：拐角平滑处理
+              return smoothCorners(filteredPoints);
+            }
+
+            /**
+             * 使用Haversine公式计算两点间距离（单位：米）
+             * @param {number} lat1 点1纬度
+             * @param {number} lon1 点1经度
+             * @param {number} lat2 点2纬度
+             * @param {number} lon2 点2经度
+             */
+            function haversine(lat1, lon1, lat2, lon2) {
+            	const R = 6371e3; // 地球半径（米）
+            	const φ1 = (lat1 * Math.PI) / 180;
+            	const φ2 = (lat2 * Math.PI) / 180;
+            	const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+            	const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+            
+            	const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+            		Math.cos(φ1) * Math.cos(φ2) *
+            		Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+            	return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            }
+            
+            /**
+             * 过滤异常GPS点（输入输出均为[经度,纬度]数组）
+             * @param {Array} points GPS点数组，格式 [[lon,lat], [lon,lat], ...]
+             */
+            function filterGPS(points) {
+            	if (points.length <= 1) return points;
+
+            	// 步骤1：计算所有相邻点间距
+            	const distances = [];
+            	for (let i = 1; i < points.length; i++) {
+            		const [lon1, lat1] = [points[i - 1].longitude,points[i - 1].latitude];
+            		const [lon2, lat2] = [points[i].longitude,points[i].latitude];
+            		distances.push(haversine(lat1, lon1, lat2, lon2));
+            	}
+            
+            	// 步骤2：计算动态阈值（平均值 + 3倍标准差）
+            	const mean = distances.reduce((s, d) => s + d, 0) / distances.length;
+            	const std = Math.sqrt(distances.reduce((s, d) => s + (d - mean) ** 2, 0) / distances.length);
+            	const threshold = mean + 3 * std;
+            
+            	// 步骤3：标记需要删除的异常点
+            	const keep = new Array(points.length).fill(true);
+            	for (let i = 0; i < distances.length; i++) {
+            		if (distances[i] > threshold) {
+            			keep[i + 1] = false; // 标记后一个点为异常
+            		}
+            	}
+            
+            	// 步骤4：生成过滤后的点数组
+            	return points.filter((_, i) => keep[i]);
+            }
+
+			loadGPS = function(id) {
+				$.ajax({
+					url: 'https://www.krpanowx.com/api/getWGSById',
+					type: 'get',
+					data: {
+						id: id
+					},
+					success: function(result) {
+					    
+						console.log(result)
+
+						var points = JSON.parse(result.data[0][8])[0].points;
+						var time = result.data[0][4];
+						var lc = result.data[0][2];
+						var sd = result.data[0][3];
+						document.getElementById("ps").innerText = "配速：" + toPs(sd) + " 分钟/公里"
+						document.getElementById("lc").innerText = "里程：" + lc + " 公里"
+						document.getElementById("sj").innerText = "时间：" + time
+
+						points.forEach((p, i) => {
+							paths.push({
+								latitude: p.latitude,
+								longitude: p
+									.longitude,
+								speed: p.speed,
+								id: i
+							})
+						});
+						console.log(points.length)
+						//paths = douglasPeucker(paths, 10);
+                        paths = filterGPS(paths)
+                        //paths = smoothCorners(paths)
+						var center = new TMap.LatLng(paths[0]
+							.latitude, paths[0].longitude);
+						// 初始化地图
+						var map = new TMap.Map("container", {
+							zoom: 17,
+							pitch: 50,
+							mapStyleId: 'style4',
+							baseMap: {
+								type: "satellite",
+								features: ["base",
+									"building3d"
+								],
+							},
+							center,
+						});
+						map.removeControl(TMap.constants.DEFAULT_CONTROL_ID.ZOOM);
+
+						paths.forEach((i) => {
+							markerData.push(new TMap.LatLng(i
+								.latitude, i
+								.longitude));
+							path.push([i.latitude, i
+								.longitude
+							])
+							// 不同速度区间对应颜色
+
+							var ps = toPsNum(covertSpeed(i.speed));
+							if(ps <7){
+								colorOffset.push(0.99)
+							}else if(ps >= 7 && ps <8){
+								colorOffset.push(0.5)
+							}else if(ps >= 8){
+								colorOffset.push(0.01)
+							}
+							
+						});
+
+						trailData.push({
+							path,
+							colorOffset
+						})
+
+
+						//初始化marker并添加至map图层
+						marker = new TMap.MultiMarker({
+							id: "whiteDot",
+							map,
+							styles: {
+								"whiteDot": new TMap
+									.MarkerStyle({
+										width: 25,
+										height: 25,
+										anchor: {
+											x: 14.5,
+											y: 14.5,
+										},
+										faceTo: "map",
+										rotate: 180,
+										src: "https://mapapi.qq.com/web/lbs/visualizationApi/demo/img/white.png",
+									}),
+								start: new TMap.MarkerStyle({
+									width: 22,
+									height: 32,
+									anchor: {
+										x: 10,
+										y: 27,
+									},
+									src: "https://mapapi.qq.com/web/miniprogram/demoCenter/images/marker-start.png",
+								}),
+								end: new TMap.MarkerStyle({
+									width: 22,
+									height: 32,
+									anchor: {
+										x: 2,
+										y: 27,
+									},
+									src: "https://mapapi.qq.com/web/miniprogram/demoCenter/images/marker-end.png",
+								}),
+							},
+							geometries: [{
+									id: "whiteDot",
+									styleId: "whiteDot",
+									position: new TMap
+										.LatLng(paths[0]
+											.latitude,
+											paths[0]
+											.longitude),
+								},
+								{
+									id: "start",
+									styleId: "start",
+									position: new TMap
+										.LatLng(paths[0]
+											.latitude,
+											paths[0]
+											.longitude),
+								},
+							],
+						});
+
+						//初始化轨迹图并添加至map图层
+						trail = new TMap.visualization.Trail({
+							pickStyle: function(item) {
+								//轨迹图样式映射函数
+								return {
+									width: 6,
+									color: new TMap
+										.GradientColor({
+											stops: {
+												0.01: "#f45e0c",
+												0.5: "#f6cd0e",
+												0.99: "#2ad61d",
+											},
+										}),
+								};
+							},
+							showDuration: Infinity, //动画中轨迹点高亮的持续时间
+							playTimes: 1,
+							playRate: 90, //动画播放倍速，默认为1m/s
+							enableColorOffset: true
+						}).addTo(map);
+
+						var j = 0;
+						start = 0;
+						var ss = TimeTotimestamp(time)
+						
+						marker.on('moving', function(e) {
+							//console.log(e)
+							if (e.whiteDot) {
+								var lc = (TMap.geometry.computeDistance(e.whiteDot.passedLatLngs)/1000).toFixed(3)
+								document.getElementById("lc").innerText = "里程：" + lc + " 公里"
+								var v1 = covertSpeed(90);
+								var v2 = sd;
+								var v = v1/v2;
+								
+								var sj = TimeToHFS((lc/v1)*v*60*60)
+								document.getElementById("sj").innerText = "时间：" + sj
+										
+								roation = TMap.geometry
+									.computeHeading(
+
+										e.whiteDot
+										.passedLatLngs[e
+											.whiteDot
+											.passedLatLngs
+											.length - 2],
+										e.whiteDot
+										.passedLatLngs[e
+											.whiteDot
+											.passedLatLngs
+											.length - 1]
+									);
+
+								//console.log(roation)
+								position = TMap.geometry
+									.computeDestination(
+										marker
+										.getGeometryById(
+											'whiteDot')
+										.position, roation,
+										60);
+							}
+
+
+							if (e.whiteDot) {
+								j++
+								var angle = parseInt(Math
+									.abs(e.whiteDot
+										.angle));
+								if (j == 500 || start == 0) {
+									j = 0;
+									start = angle;
+								}
+								map.easeTo({
+									center: position,
+									rotation: start,
+									zoom: 17,
+									pitch: 60,
+								}, {
+									duration: 800,
+								});
+							}
+
+						});
+
+						marker.on('move_ended', function() {
+							console.log()
+							isMoving = false;
+							marker.updateGeometries([{
+								id: "end",
+								styleId: "end",
+								position: new TMap
+									.LatLng(
+										paths[
+											paths
+											.length -
+											1]
+										.latitude,
+										paths[
+											paths
+											.length -
+											1]
+										.longitude
+									),
+							}, ]);
+							// map.easeTo({
+							// 	zoom: 16.5,
+							// 	pitch: 45,
+							// 	rotation: 355.5,
+							// 	center:position,
+							// }, {
+							// 	duration: 400,
+							// });
+
+							//创建LatLngBounds实例
+							var latlngBounds = new TMap
+								.LatLngBounds();
+							//将坐标逐一做为参数传入extend方法，latlngBounds会根据传入坐标自动扩展生成
+							for (var i = 0; i < path
+								.length; i++) {
+								latlngBounds.extend(path[i]);
+							}
+							//调用fitBounds自动调整地图显示范围
+							map.easeTo({
+								rotation: 0,
+								pitch: 0
+							}, {
+								duration: 450,
+							});
+
+							setTimeout(() => {
+								map.fitBounds(latlngBounds);
+								marker.remove("whiteDot")
+							}, 500)
+						});
+
+					},
+					error: function(xhr, status, error) {
+						console.log(error);
+					}
+				});
+			}
+			queryData = function(url, data) {
+				var p = new Promise(function(resolve, reject) {
+					$.post(url, data, function(data) {
+						resolve(data)
+					})
+				})
+				return p;
+			}
+			queryGetData = function(url, data) {
+				var p = new Promise(function(resolve, reject) {
+					$.get(url, data, function(data) {
+						resolve(data)
+					})
+				})
+				return p;
+			}
+		</script>
+	</body>
+	<style>
+		.ewm {
+			position: absolute;
+			width:96%;
+			left: 2%;
+			height:120px;
+			color: white;
+			background-color: #FFFFFFF2;
+			border-radius: 5px;
+			text-align: center;
+			bottom: 5px;
+			z-index: 10000;
+			
+		}
+		.ewmImg{
+			
+			width:100px;
+			height:100px;
+			border-radius: 50px;
+			margin-top: 10px;
+			margin-left: 220px;
+		}
+		.ewmText{
+			position: absolute;
+			margin-top: 20px;
+			color: black;
+			margin-left: 20px;
+			top: 8px;
+			z-index: 10000;
+		}
+	</style>
+</html>
